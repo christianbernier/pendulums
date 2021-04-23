@@ -9,20 +9,20 @@ export default () => {
   return (
     <>
       <Helmet>
-        <title>Lissajous Curves</title>
+        <title>Double Pendulum</title>
         <link rel="shortcut icon" href={Favicon} />
         <meta property="og:type" content="website" />
-        <meta property="og:site_name" content="Lissajous Curves" />
-        <meta property="og:title" content="Lissajous Curves" />
+        <meta property="og:site_name" content="Double Pendulum" />
+        <meta property="og:title" content="Double Pendulum" />
         <meta
           property="og:description"
-          content="See a visualization of how Lissajous curves are formed!"
+          content="Learn about double pendulums with this visualization tool!"
         />
         <meta property="twitter:card" content="summary_large_image" />
         <meta property="og:image" content={ShareImage}/>
         <meta
           property="description"
-          content="See a visualization of how Lissajous curves are formed!"
+          content="Learn about double pendulums with this visualization tool!"
         />
       </Helmet>
       <Global

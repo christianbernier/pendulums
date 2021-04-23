@@ -8,33 +8,39 @@ Konva.pixelRatio = 1;
 
 //Default values
 let stageSize = 600;
-let numCircles = 6;
-let maxFramesBetweenCalculations = 300;
-let sizeMultiplier = 1.2;
-let startingPositionX = 0;
-let startingPositionY = 0;
-let framesBetweenCircleRenders = 20;
+let GRAVITY = 1;
+let mass1 = 20;
+let mass2 = 17;
+let length1 = 100;
+let length2 = 125;
+let angle1 = 0.25;
+let angle2 = -0.33;
+let framesBetweenRerender = 50;
 
 //Parameters
 const paramNames = [
-  "Number of circles",
-  "Top circles' starting position (in multiples of pi)",
-  "Left circles' starting position (in multiples of pi)",
-  "Max. frames between calculations",
-  "Frames between calculations size multiplier",
-  "Frames between circle rerenders",
+  "Gravity",
+  "Top pendulum's mass",
+  "Bottom pendulum's mass",
+  "Top pendulum's length",
+  "Bottom pendulum's length",
+  "Top pendulum's starting angle (in multiples of pi)",
+  "Bottom' pendulum's starting angle (in multiples of pi)",
+  "Frames between rerenders",
 ];
 
 const paramIDs = [
-  "param-num-circles",
-  "param-x-start",
-  "param-y-start",
-  "param-max-frames",
-  "param-size-mult",
-  "param-circle-frames",
+  "param-gravity",
+  "param-m1",
+  "param-m2",
+  "param-l1",
+  "param-l2",
+  "param-a1",
+  "param-a2",
+  "param-rr",
 ];
 
-const paramDefaults = ["6", "0", "0", "300", "1.2", "20"];
+const paramDefaults = ["1", "20", "17", "100", "125", "0.25", "-0.33", "50"];
 
 const setParameters = () => {
   const valuesForParams = [];
@@ -43,36 +49,48 @@ const setParameters = () => {
   }
 
   if (typeof window !== "undefined" && typeof document !== "undefined") {
-    if (valuesForParams[0] < 1) {
+    if (valuesForParams[0] <= 0) {
+      window.alert("Invalid parameter: Gravity. The gravity must be positive.");
+      return;
+    }
+
+    if (valuesForParams[1] <= 0) {
       window.alert(
-        "Invalid parameter: Number of circles. The minimum value is 1."
+        "Invalid parameter: Pendulum 1 Mass. The mass of pendulum 1 must be positive."
       );
       return;
     }
 
-    if (valuesForParams[3] < 0) {
+    if (valuesForParams[2] <= 0) {
       window.alert(
-        "Invalid parameter: Max. frames between calculations. The minimum value is 0."
+        "Invalid parameter: Pendulum 2 Mass. The mass of pendulum 2 must be positive."
       );
       return;
     }
 
-    window.location = `?circles=${valuesForParams[0]}&x=${valuesForParams[1]}&y=${valuesForParams[2]}&maxFrames=${valuesForParams[3]}&sizeMult=${valuesForParams[4]}&circleFrames=${valuesForParams[5]}`;
+    if (valuesForParams[3] <= 0) {
+      window.alert(
+        "Invalid parameter: Pendulum 1 Length. The length of pendulum 1 must be positive."
+      );
+      return;
+    }
+
+    if (valuesForParams[4] <= 0) {
+      window.alert(
+        "Invalid parameter: Pendulum 2 Length. The length of pendulum 2 must be positive."
+      );
+      return;
+    }
+
+    if (valuesForParams[7] <= 0) {
+      window.alert(
+        "Invalid parameter: Rerender frames. There must be at least 1 frame between rerenders."
+      );
+      return;
+    }
+
+    window.location = `?g=${valuesForParams[0]}&m1=${valuesForParams[1]}&m2=${valuesForParams[2]}&l1=${valuesForParams[3]}&l2=${valuesForParams[4]}&a1=${valuesForParams[5]}&a2=${valuesForParams[6]}&rr=${valuesForParams[7]}`;
   }
-};
-
-//Colors
-const hslToHex = (h, s, l) => {
-  l /= 100;
-  const a = (s * Math.min(l, 1 - l)) / 100;
-  const f = (n) => {
-    const k = (n + h / 30) % 12;
-    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-    return Math.round(255 * color)
-      .toString(16)
-      .padStart(2, "0");
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
 };
 
 const downloadURI = (uri, name) => {
@@ -87,99 +105,78 @@ const downloadURI = (uri, name) => {
 const exportToImage = () => {
   const stage = document.getElementsByTagName("CANVAS")[0];
   const dataURL = stage.toDataURL({ pixelRatio: 5 });
-  downloadURI(dataURL, "lissajous.png");
+  downloadURI(dataURL, "pendulums.png");
 };
 
-//A "Pointer" is one of the circles, including the line extending down or to the right.
-class Pointer extends React.Component {
-  constructor(x_, y_, size_, type_, angle_, rate_, color_) {
+class Pendulum extends React.Component {
+  constructor(l_, m_, i_, d_) {
     super();
-    this.x = x_;
-    this.y = y_;
-    this.size = size_;
-    this.type = type_; // 0 is a circleX; 1 is a circleY
-    this.angle = angle_;
-    this.rate = rate_;
-    this.color = color_;
-    this.tipX = this.size * Math.cos(this.angle);
-    this.tipY = -1 * this.size * Math.sin(this.angle);
+    this.l = l_;
+    this.m = m_;
+    this.i = i_;
+    this.d = d_;
+    this.v = 0;
+    this.a = 0;
   }
 
-  update() {
-    //Updates the actual values; does not redraw
-    this.angle += (this.rate / 100) % (2 * Math.PI);
-    this.tipX = this.size * Math.cos(this.angle);
-    this.tipY = -1 * this.size * Math.sin(this.angle);
+  updateDisplacement() {
+    this.d += this.v;
   }
 
-  render(i) {
-    //Actually draws the shape
-    return (
-      <>
-        <Konva.Circle //Circle itself
-          x={this.x}
-          y={this.y}
-          radius={this.size}
-          stroke={hslToHex(360 * (this.color / numCircles), 100, 50)}
-          key={`Circle-${this.type}-${i}`}
-        />
-        <Konva.Text //Text in the center, displaying the speed
-          text={i + 1}
-          x={this.x}
-          y={this.y}
-          align={"center"}
-          verticalAlign={"middle"}
-          fontSize={this.size}
-          offsetX={this.size / 4}
-          offsetY={(this.size * 2) / 5}
-          fill={hslToHex(360 * (this.color / numCircles), 100, 50)}
-          key={`Label-${this.type}-${i}`}
-        />
-        {this.type === 0 ? (
-          <Konva.Line //Vertical line if it's a top circle
-            x={this.x + this.tipX}
-            y={this.y + this.tipY}
-            points={[0, 0, 0, stageSize - (this.tipY + this.y)]}
-            stroke={"white"}
-            opacity={0.5}
-            key={`VLine-${this.type}-${i}`}
-          />
-        ) : (
-          <Konva.Line //Horizontal line if it's a left circle
-            x={this.x + this.tipX}
-            y={this.y + this.tipY}
-            points={[0, 0, stageSize - (this.tipX + this.x), 0]}
-            stroke={"white"}
-            opacity={0.5}
-            key={`HLine-${this.type}-${i}`}
-          />
-        )}
-        <Konva.Circle //Point on the edge of the circle where the pointer is
-          x={this.x + this.tipX}
-          y={this.y + this.tipY}
-          radius={6}
-          fill={hslToHex(360 * (this.color / numCircles), 100, 50)}
-          key={`Tip-${this.type}-${i}`}
-        />
-      </>
-    );
+  updateVelocity() {
+    this.v += this.a;
+  }
+
+  updateAcceleration(o) {
+    if (this.i === 0) {
+      //Pendulum 1
+      let num1 = -GRAVITY * (2 * this.m + o.m) * Math.sin(this.d);
+      let num2 = -o.m * GRAVITY * Math.sin(this.d - 2 * o.d);
+      let num3 = -2 * Math.sin(this.d - o.d) * o.m;
+      let num4 =
+        o.v * o.v * o.l + this.v * this.v * this.l * Math.cos(this.d - o.d);
+      let den =
+        this.l * (2 * this.m + o.m - o.m * Math.cos(2 * this.d - 2 * o.d));
+      this.a = (num1 + num2 + num3 * num4) / den;
+      return;
+    }
+    //Pendulum 2
+
+    let num1 = 2 * Math.sin(o.d - this.d);
+    let num2 = o.v * o.v * o.l * (o.m + this.m);
+    let num3 = GRAVITY * (o.m + this.m) * Math.cos(o.d);
+    let num4 = this.v * this.v * this.l * this.m * Math.cos(o.d - this.d);
+    let den =
+      this.l * (2 * o.m + this.m - this.m * Math.cos(2 * o.d - 2 * this.d));
+    this.a = (num1 * (num2 + num3 + num4)) / den;
   }
 }
 
 export default () => {
-  let circleSpacing;
-  let circleRadius;
-
-  //Arrays of Pointer objects in both direcitons
-  const [circlesX, setCirclesX] = useState([]);
-  const [circlesY, setCirclesY] = useState([]);
-
-  //2D Array of every intersection point
-  const [intersections, setIntersections] = useState([]);
+  const [pendulums, setPendulums] = useState([]);
 
   //Frame counter and state variable for forced rerender
   let renderCycle = 0;
   const [rerender, setRerender] = useState(0);
+
+  useEffect(() => {}, []);
+
+  useEffect(() => {
+    if (pendulums.length !== 2) {
+      return;
+    }
+
+    setInterval(() => {
+      pendulums[0].updateAcceleration(pendulums[1]);
+      pendulums[1].updateAcceleration(pendulums[0]);
+      pendulums[0].updateVelocity();
+      pendulums[1].updateVelocity();
+      pendulums[0].updateDisplacement();
+      pendulums[1].updateDisplacement();
+
+      setRerender(renderCycle++); //Forces a rerender
+    }, framesBetweenRerender);
+  }, [pendulums]);
 
   useEffect(() => {
     //This function is run once when the page loads
@@ -197,109 +194,24 @@ export default () => {
       const param0 = urlParams.get("circles");
 
       if (param0) {
-        numCircles = urlParams.get("circles") - 0;
-        startingPositionX = urlParams.get("x") - 0;
-        startingPositionY = urlParams.get("y") - 0;
-        maxFramesBetweenCalculations = urlParams.get("maxFrames") - 0;
-        sizeMultiplier = urlParams.get("sizeMult") - 0;
-        framesBetweenCircleRenders = urlParams.get("circleFrames") - 0;
-      }
-    }
-
-    //Setting spacing variables with new values
-    circleSpacing = (stageSize - 12) / (numCircles + 1);
-    circleRadius = (0.4 * (stageSize - 12)) / (numCircles + 1);
-
-    //Initialize circle arrays
-    let currentCirclesX = [],
-      currentCirclesY = [];
-
-    for (let i = 0; i < numCircles; i++) {
-      const nextCircleX = new Pointer(
-        circleSpacing * (i + 1) + (circleSpacing - circleRadius) + 5, //X position
-        circleRadius + 7, //Y position
-        circleRadius, //Radius
-        0, //Type (0 means horizontal)
-        Math.PI * startingPositionX, //Starting angle
-        (i + 1) / 4, //Rate
-        i //Index (used for color)
-      );
-      const nextCircleY = new Pointer(
-        circleRadius + 7, //X position
-        circleSpacing * (i + 1) + (circleSpacing - circleRadius) + 5, //Y position
-        circleRadius, //Radius
-        1, //Type (1 means vertical)
-        Math.PI * startingPositionY, //Starting angle
-        (i + 1) / 4, //Rate
-        i //Index (used for color)
-      );
-
-      currentCirclesX.push(nextCircleX);
-      currentCirclesY.push(nextCircleY);
-    }
-
-    setCirclesX(currentCirclesX);
-    setCirclesY(currentCirclesY);
-
-    //Intersection 2D array initialization
-    let inter = [];
-
-    for (let x = 0; x < numCircles; x++) {
-      let inter2 = [];
-
-      for (let y = 0; y < numCircles; y++) {
-        inter2.push([]);
+        GRAVITY = urlParams.get("g") - 0;
+        mass1 = urlParams.get("m1") - 0;
+        mass2 = urlParams.get("m2") - 0;
+        length1 = urlParams.get("l1") - 0;
+        length2 = urlParams.get("l2") - 0;
+        angle1 = urlParams.get("a1") - 0;
+        angle2 = urlParams.get("a2") - 0;
+        framesBetweenRerender = urlParams.get("rr") - 0;
       }
 
-      inter.push(inter2);
+      let pendulumPrep = [];
+      let p0 = new Pendulum(length1, mass1, 0, Math.PI * angle1);
+      let p1 = new Pendulum(length2, mass2, 1, Math.PI * angle2);
+      pendulumPrep.push(p0);
+      pendulumPrep.push(p1);
+      setPendulums(pendulumPrep);
     }
-
-    setIntersections(inter);
   }, []);
-
-  useEffect(() => {
-    //This function runs every time the circlesX array changes (once, after it's initialized)
-    setInterval(() => {
-      //This function runs every millisecond (if it's running at maximum speed)
-
-      //Update every circle's angle
-      for (const circle of circlesX) {
-        circle.update();
-      }
-
-      for (const circle of circlesY) {
-        circle.update();
-      }
-
-      //Calculating intersection points
-      let ints = intersections;
-
-      for (let i = 0; i < circlesX.length; i++) {
-        for (let j = 0; j < circlesY.length; j++) {
-          //This if statement is to skip most frames, determined by the sizeMultiplier and maxFramesBetweenCalculations parameters
-          if (
-            renderCycle %
-              Math.floor(
-                maxFramesBetweenCalculations /
-                  ((i + 1) * sizeMultiplier) /
-                  ((j + 1) * sizeMultiplier)
-              ) ===
-            0
-          ) {
-            const cX = circlesX[i];
-            const cY = circlesY[j];
-
-            ints[i][j].push(cX.x + cX.tipX);
-            ints[i][j].push(cY.y + cY.tipY);
-
-            setIntersections(ints);
-          }
-        }
-      }
-
-      setRerender(renderCycle++); //Forces a rerender
-    }, 1);
-  }, [circlesX]);
 
   return (
     <>
@@ -336,7 +248,7 @@ export default () => {
             }
           `}
         >
-          Lissajous Curves
+          Double Pendulum
         </p>
         <div
           css={css`
@@ -351,25 +263,10 @@ export default () => {
               margin-top: 0;
             `}
           >
-            Lissajous curves describe complex harmonic motion and are defined by
-            parametric equations of two sinusoidal functions (represetned by the
-            circles in the animation). The numbers inside the circles express
-            their relative speeds, which is also represented by their colors.
-          </p>
-          <Gap height="10px" />
-          <p
-            css={css`
-              font-size: 1.1rem;
-              font-weight: 300;
-              margin-top: 0;
-            `}
-          >
-            To improve efficiency in drawing, simpler curves are approximated by
-            fewer lines. Since the intersection points are only calculated
-            periodically, it makes some curves with small periods look jagged.
-            In reality, these curves would not have such rough corners. If you
-            have a more powerful computer, try changing the parameters below for
-            smoother shapes.
+            Double pendulums can demonstrate chaotic motion resulting from a
+            relatively simple system. Try changing the parameters below to see
+            what factors determine stability. In the visualization, the size of
+            the bob represents its mass and the lengths are drawn to scale.
           </p>
           <Gap height="10px" />
           <p
@@ -424,14 +321,12 @@ export default () => {
               margin-top: 0;
             `}
           >
-            Try changing the parameters below to see different curves. Note:
-            this depends on your computer's performance. The following changes
-            will require more computing power: more circles, fewer frames
-            between calculations, smaller size multipliers, fewer frames between
-            circle rerenders.
+            Try changing the parameters below to see different results! If your
+            computer is powerful, try decreasing frames between rerenders for a
+            smoother animation.
           </p>
           {paramNames.map((param, i) => (
-            <>
+            <React.Fragment key={`param-div-${i}`}>
               <p
                 css={css`
                   font-size: 1.1rem;
@@ -447,7 +342,7 @@ export default () => {
                 defaultValue={paramDefaults[i]}
                 id={paramIDs[i]}
               />
-            </>
+            </React.Fragment>
           ))}
           <p
             css={css`
@@ -465,7 +360,7 @@ export default () => {
           >
             See the results!
           </p>
-          
+
           <Gap height="10px" />
           <p
             css={css`
@@ -483,9 +378,9 @@ export default () => {
               margin-top: 0;
             `}
           >
-            This site was made in February 2021 by Christian Bernier. Feel free
-            to check out the{" "}
-            <a href="https://github.com/christianbernier/lissajous">
+            This site was made in April 2021 by Christian Bernier. Feel free to
+            check out the{" "}
+            <a href="https://github.com/christianbernier/pendulums">
               source code
             </a>
             . If you have any questions or recommendations, free free to{" "}
@@ -506,36 +401,71 @@ export default () => {
             }
           `}
         >
-          <Konva.FastLayer>
+          <Konva.Layer listening={false}>
             <Konva.Rect
               x={0}
               y={0}
               width={stageSize}
               height={stageSize}
-              fill={"rgba(43, 43, 43)"}
+              fill={"rgba(64, 64, 64)"}
             />
-            {renderCycle % framesBetweenCircleRenders === 0 ? (
-              circlesX.map((c, i) => c.render(i))
-            ) : (
-              <></>
-            )}
-            {renderCycle % framesBetweenCircleRenders === 0 ? (
-              circlesY.map((c, i) => c.render(i))
-            ) : (
-              <></>
-            )}
-            {intersections.map((x, i) =>
-              x.map((y, j) => (
+            {pendulums.length === 2 ? (
+              <>
                 <Konva.Line
-                  x={0}
-                  y={0}
-                  points={y}
-                  stroke={"#ccc"}
-                  key={`IntersectionLine-${i}-${j}`}
+                  x={stageSize / 2}
+                  y={stageSize / 2}
+                  points={[
+                    0,
+                    0,
+                    pendulums[0].l * Math.sin(pendulums[0].d),
+                    pendulums[0].l * Math.cos(pendulums[0].d),
+                  ]}
+                  strokeWidth={5}
+                  stroke={"rgb(66, 147, 221)"}
                 />
-              ))
+                <Konva.Line
+                  x={stageSize / 2 + pendulums[0].l * Math.sin(pendulums[0].d)}
+                  y={stageSize / 2 + pendulums[0].l * Math.cos(pendulums[0].d)}
+                  points={[
+                    0,
+                    0,
+                    pendulums[1].l * Math.sin(pendulums[1].d),
+                    pendulums[1].l * Math.cos(pendulums[1].d),
+                  ]}
+                  strokeWidth={5}
+                  stroke={"rgb(136, 171, 204)"}
+                />
+                <Konva.Circle
+                  x={stageSize / 2 + pendulums[0].l * Math.sin(pendulums[0].d)}
+                  y={stageSize / 2 + pendulums[0].l * Math.cos(pendulums[0].d)}
+                  radius={pendulums[0].m}
+                  fill={"rgb(66, 147, 221)"}
+                />
+                <Konva.Circle
+                  x={
+                    stageSize / 2 +
+                    pendulums[0].l * Math.sin(pendulums[0].d) +
+                    pendulums[1].l * Math.sin(pendulums[1].d)
+                  }
+                  y={
+                    stageSize / 2 +
+                    pendulums[0].l * Math.cos(pendulums[0].d) +
+                    pendulums[1].l * Math.cos(pendulums[1].d)
+                  }
+                  radius={pendulums[1].m}
+                  fill={"rgb(136, 171, 204)"}
+                />
+                <Konva.Circle
+                  x={stageSize / 2}
+                  y={stageSize / 2}
+                  radius={10}
+                  fill={"rgb(43, 43, 43)"}
+                />
+              </>
+            ) : (
+              <></>
             )}
-          </Konva.FastLayer>
+          </Konva.Layer>
         </Konva.Stage>
         <div
           css={css`
